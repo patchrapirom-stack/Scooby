@@ -1,0 +1,305 @@
+
+"""
+Article Analyzer Web App
+วิเคราะห์บทความตาม Meta Policy ผ่านเว็บเบราว์เซอร์
+"""
+
+import json
+import requests
+import streamlit as st
+
+
+# ==================== CONFIG ====================
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+# ==================== SYSTEM PROMPT ====================
+SYSTEM_PROMPT = """คุณคือผู้เชี่ยวชาญด้าน Content Marketing และ Meta Advertising Policy ที่มีประสบการณ์การเขียนคอนเทนต์โฆษณาบน Facebook/Instagram มากกว่า 10 ปี
+
+หน้าที่ของคุณคือวิเคราะห์บทความที่ผู้ใช้ส่งมา และตอบกลับเป็น JSON เท่านั้น โดยมีโครงสร้างดังนี้:
+
+{
+  "interest_score": <คะแนนความน่าสนใจ 1-10>,
+  "interest_analysis": "<วิเคราะห์ว่าบทความน่าสนใจตรงไหน จุดอ่อนตรงไหน>",
+  "improvement_tips": ["<เคล็ดลับ 1>", "<ข้อ 2>", "<ข้อ 3>"],
+  "risky_words": [
+    {
+      "word": "<คำเสี่ยง>",
+      "reason": "<เหตุผลที่เสี่ยง>",
+      "replacement": "<คำทดแทน>"
+    }
+  ],
+  "rewritten_article": "<บทความใหม่ที่ผ่าน Meta Policy>",
+  "target_audience": {
+    "age_range": "<ช่วงอายุ เช่น 25-45 ปี>",
+    "gender": "<เพศ>",
+    "interests": ["<ความสนใจ 1>", "<2>", "<3>"],
+    "lifestyle": "<ไลฟ์สไตล์>",
+    "income_level": "<รายได้>",
+    "location": "<พื้นที่>",
+    "pain_points": ["<ปัญหา 1>", "<2>"],
+    "summary": "<สรุปกลุ่มเป้าหมาย>"
+  }
+}
+
+หลักการตรวจคำเสี่ยง Meta Policy:
+1. หลีกเลี่ยงคำเกินจริง (รักษาหายขาด, ดีที่สุด, 100%)
+2. หลีกเลี่ยง Personal Attributes
+3. หลีกเลี่ยงคำกระตุ้นความกลัว
+4. หลีกเลี่ยงสัญญาผลลัพธ์
+5. ใช้ภาษาเชิงบวก
+
+ตอบเป็น JSON เท่านั้น ห้ามมี markdown หรือคำอธิบายอื่น"""
+
+
+# ==================== ANALYZE FUNCTION ====================
+def analyze_article(text: str, api_key: str) -> dict:
+    """เรียก Groq API วิเคราะห์บทความ"""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"กรุณาวิเคราะห์บทความต่อไปนี้:\n\n{text}"},
+        ],
+        "temperature": 0.7,
+        "response_format": {"type": "json_object"},
+        "max_tokens": 4096,
+    }
+
+    response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=120)
+
+    if response.status_code != 200:
+        raise Exception(f"Groq API error {response.status_code}: {response.text}")
+
+    data = response.json()
+    return json.loads(data["choices"][0]["message"]["content"])
+
+
+# ==================== STREAMLIT UI ====================
+st.set_page_config(
+    page_title="Article Analyzer",
+    page_icon="🤖",
+    layout="wide",
+)
+
+
+# ==================== PASSWORD PROTECTION ====================
+def check_password():
+    """ตรวจสอบรหัสผ่านก่อนเข้าใช้งาน"""
+
+    def password_entered():
+        if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.title("🔒 Article Analyzer")
+        st.markdown("### กรุณาใส่รหัสผ่านเพื่อเข้าใช้งาน")
+        st.text_input(
+            "รหัสผ่าน",
+            type="password",
+            on_change=password_entered,
+            key="password",
+        )
+        st.info("💡 ติดต่อเจ้าของแอปเพื่อขอรหัสผ่าน")
+        return False
+
+    elif not st.session_state["password_correct"]:
+        st.title("🔒 Article Analyzer")
+        st.text_input(
+            "รหัสผ่าน",
+            type="password",
+            on_change=password_entered,
+            key="password",
+        )
+        st.error("❌ รหัสผ่านไม่ถูกต้อง")
+        return False
+
+    else:
+        return True
+
+
+# เช็ครหัสผ่านก่อน ถ้าไม่ผ่านจะหยุดที่นี่
+if not check_password():
+    st.stop()
+
+
+# ==================== ดึง API KEY จาก SECRETS ====================
+api_key = st.secrets["GROQ_API_KEY"]
+
+
+# --- HEADER ---
+st.title("🤖 Article Analyzer")
+st.caption("วิเคราะห์บทความโฆษณาตาม Meta Policy ขับเคลื่อนด้วย Groq AI")
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("⚙️ ตั้งค่า")
+
+    st.success("✅ ระบบพร้อมใช้งาน")
+
+    st.markdown("---")
+
+    with st.expander("ℹ️ เกี่ยวกับแอปนี้"):
+        st.markdown("""
+        **Article Analyzer** ช่วยวิเคราะห์บทความโฆษณา:
+
+        - 📊 ให้คะแนนความน่าสนใจ
+        - ⚠️ ตรวจคำเสี่ยง Meta Policy
+        - ✨ เขียนบทความใหม่ให้
+        - 🎯 วิเคราะห์กลุ่มเป้าหมาย
+
+        ขับเคลื่อนด้วย **Groq AI** (Llama 3.3 70B)
+        """)
+
+    st.markdown("---")
+    st.caption("🔒 ใช้งานเฉพาะผู้ที่ได้รับอนุญาต")
+    st.caption("🌐 ข้อมูลส่งตรงไปยัง Groq เท่านั้น")
+
+
+# --- MAIN: INPUT ARTICLE ---
+st.subheader("📝 ใส่บทความที่ต้องการวิเคราะห์")
+
+article_text = st.text_area(
+    "บทความ",
+    height=200,
+    placeholder="วางบทความโฆษณาที่ต้องการวิเคราะห์ที่นี่...\n\nต้องมีอย่างน้อย 50 ตัวอักษร",
+    label_visibility="collapsed",
+)
+
+col1, col2 = st.columns([1, 4])
+with col1:
+    analyze_button = st.button("🔍 วิเคราะห์บทความ", type="primary", use_container_width=True)
+with col2:
+    if article_text:
+        st.caption(f"ความยาว: {len(article_text)} ตัวอักษร")
+
+
+# --- ANALYZE & DISPLAY RESULT ---
+if analyze_button:
+    if not article_text or len(article_text.strip()) < 50:
+        st.error("⚠️ บทความสั้นเกินไป กรุณาใส่บทความอย่างน้อย 50 ตัวอักษร")
+    else:
+        with st.spinner("🔍 กำลังวิเคราะห์... รอประมาณ 5-15 วินาที"):
+            try:
+                result = analyze_article(article_text, api_key)
+
+                st.success("✅ วิเคราะห์เสร็จแล้ว!")
+
+                # --- Score Card ---
+                score = result.get("interest_score", 0)
+                score_emoji = "🟢" if score >= 7 else "🟡" if score >= 4 else "🔴"
+
+                st.markdown("---")
+                st.subheader(f"📊 ผลการวิเคราะห์")
+
+                col_a, col_b = st.columns([1, 3])
+                with col_a:
+                    st.metric(
+                        label="คะแนนความน่าสนใจ",
+                        value=f"{score_emoji} {score}/10",
+                    )
+                with col_b:
+                    st.markdown("**🔍 การวิเคราะห์:**")
+                    st.info(result.get("interest_analysis", "-"))
+
+                # --- Improvement Tips ---
+                tips = result.get("improvement_tips", [])
+                if tips:
+                    st.markdown("**💡 เคล็ดลับเพิ่มความน่าสนใจ:**")
+                    for i, tip in enumerate(tips, 1):
+                        st.markdown(f"{i}. {tip}")
+
+                # --- Risky Words ---
+                st.markdown("---")
+                st.subheader("⚠️ คำเสี่ยงต่อ Meta Policy")
+
+                risky = result.get("risky_words", [])
+                if risky:
+                    for i, item in enumerate(risky, 1):
+                        with st.container(border=True):
+                            st.markdown(f"**{i}. \"{item.get('word', '')}\"**")
+                            col_x, col_y = st.columns(2)
+                            with col_x:
+                                st.markdown(f"❌ **เหตุผล:** {item.get('reason', '')}")
+                            with col_y:
+                                st.markdown(f"✅ **แนะนำใช้:** **`{item.get('replacement', '')}`**")
+                else:
+                    st.success("✅ ไม่พบคำเสี่ยงที่อาจขัดต่อ Meta Policy")
+
+                # --- Rewritten Article ---
+                st.markdown("---")
+                st.subheader("✨ บทความใหม่ (ผ่าน Meta Policy)")
+                rewritten = result.get("rewritten_article", "-")
+                st.text_area(
+                    "บทความที่เขียนใหม่",
+                    value=rewritten,
+                    height=200,
+                    label_visibility="collapsed",
+                )
+                st.caption("💡 คลิกที่ข้อความเพื่อ copy ได้เลย")
+
+                # --- Target Audience ---
+                st.markdown("---")
+                st.subheader("🎯 กลุ่มลูกค้าเป้าหมาย")
+
+                audience = result.get("target_audience", {})
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.markdown("**👥 อายุ**")
+                    st.write(audience.get("age_range", "-"))
+                    st.markdown("**⚧ เพศ**")
+                    st.write(audience.get("gender", "-"))
+                with col2:
+                    st.markdown("**💰 รายได้**")
+                    st.write(audience.get("income_level", "-"))
+                    st.markdown("**📍 พื้นที่**")
+                    st.write(audience.get("location", "-"))
+                with col3:
+                    st.markdown("**🌟 ไลฟ์สไตล์**")
+                    st.write(audience.get("lifestyle", "-"))
+
+                # Interests
+                interests = audience.get("interests", [])
+                if interests:
+                    st.markdown("**❤️ ความสนใจ**")
+                    st.write(" · ".join(f"`{i}`" for i in interests))
+
+                # Pain points
+                pains = audience.get("pain_points", [])
+                if pains:
+                    st.markdown("**😟 Pain Points**")
+                    for p in pains:
+                        st.markdown(f"- {p}")
+
+                # Summary
+                summary = audience.get("summary", "")
+                if summary:
+                    st.markdown("**📝 สรุป**")
+                    st.info(summary)
+
+            except json.JSONDecodeError:
+                st.error("❌ เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่")
+            except requests.exceptions.RequestException as e:
+                st.error(f"❌ เชื่อมต่อ Groq ไม่ได้: {e}")
+            except Exception as e:
+                error_msg = str(e)
+                if "401" in error_msg:
+                    st.error("❌ API Key ไม่ถูกต้อง กรุณาตรวจสอบใหม่")
+                elif "429" in error_msg:
+                    st.error("⏳ ใช้งานเกินโควต้า กรุณารอสักครู่")
+                else:
+                    st.error(f"❌ เกิดข้อผิดพลาด: {error_msg}")
+
+
+# --- FOOTER ---
+st.markdown("---")
+st.caption("🤖 Powered by Groq + Streamlit | Made with ❤️")
